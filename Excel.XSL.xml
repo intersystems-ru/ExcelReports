@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25" zv="Cache for Windows (x86-64) 2017.1 (Build 792U)" ts="2017-06-19 00:14:36">
+<Class name="Excel.XSL">
+<Super>%CSP.Page</Super>
+<TimeChanged>64452,85782.63943</TimeChanged>
+<TimeCreated>64434,70503.304253</TimeCreated>
+
+<Parameter name="XMLFILE">
+<Description>
+Входной файл</Description>
+<Default>C:\temp\input.xml</Default>
+</Parameter>
+
+<Parameter name="XLSFILE">
+<Description>
+Выходной файл</Description>
+<Default>C:\temp\output.xls</Default>
+</Parameter>
+
+<Method name="XSLtoFile">
+<Description>
+XSL трансформация в файл
+на вход: запрос, имя входного файла, имя выходного файла
+на выходе: xls</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>Query:%String="",XMLFile:%String=..#XMLFILE,XLSFile:%String=..#XLSFILE</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set sc = $$$OK
+
+	set XML=##class(%FileCharacterStream).%New()
+	set XML.Filename = XMLFile
+	
+	w $zt($p($h,",",2))," Конвертирование XML в XSL: ...",!
+	set XSL = ..XMLInXSL(XML,.sc) if $$$ISERR(sc) quit sc
+	w $zt($p($h,",",2))," Конвертирование XML в XSL: OK!",!
+
+	set XMLData = ##class(%GlobalCharacterStream).%New()
+	
+	w $zt($p($h,",",2))," Получение данных из SQL: ...",!
+	
+	set sc=..genXMLData(XMLData, Query, .CountParam) if $$$ISERR(sc) quit sc
+	
+	w $zt($p($h,",",2))," Полученно полей: "_CountParam,!
+	w $zt($p($h,",",2))," Получение данных из SQL: OK!",!
+
+	
+	w $zt($p($h,",",2))," Генерация выходного отчета: ...",!
+	set OutputFile = ##class(%FileCharacterStream).%New()
+	set OutputFile.TranslateTable = "UTF8"
+	set OutputFile.Filename = XLSFile
+	set params("CountParam") = CountParam
+	set sc = ##class(%XML.XSLT.Transformer).TransformStream(XMLData, XSL, .OutputFile,,.params)
+	if $$$ISERR(sc) quit sc
+	w $zt($p($h,",",2))," Генерация выходного отчета: OK!",!
+	quit OutputFile.%Save()
+]]></Implementation>
+</Method>
+
+<Method name="genXMLData">
+<Description>
+генерация XML с данными</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[stream:%Stream.Object,Query:%String,&CountParam]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tSC=$$$OK
+	set CountParam = 0
+	if '$IsObject($g(stream)) s stream=##class(%GlobalCharacterStream).%New()
+	
+	set fWriter=##class(%XML.Writer).%New()
+	set fWriter.Indent=1
+	set tSC=fWriter.OutputToStream(stream)
+
+	do fWriter.RootElement("SQLResult")
+	
+	do ..addSQLTags(.fWriter, Query, .CountParam)
+
+	if $$$ISERR(tSC) q tSC	
+ 	do fWriter.EndRootElement()
+	q tSC
+]]></Implementation>
+</Method>
+
+<Method name="addSQLTags">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[writer,Query:%String,&CountParam]]></FormalSpec>
+<Implementation><![CDATA[
+	
+	Set rs=##class(%ResultSet).%New("%DynamicQuery:SQL")
+	Set sc=rs.Prepare(Query)
+	do rs.Execute()
+	
+	set colCount = rs.%ResultColumnCountGet()
+	while rs.Next(.sc)
+	{ 
+		set CountParam = CountParam + 1
+		If $$$ISERR(sc) return 0
+		d writer.Element("row")
+		for i=1:1:colCount 
+		{ if (rs.GetColumnType(i) = 2)
+			{
+				//w $zd(rs.Data(rs.GetColumnName(i)),3),"     "
+				d ..addTagElement(.writer,"c"_i,$zd(rs.Data(rs.GetColumnName(i)),3))
+			}else{
+				//w rs.Data(rs.GetColumnName(i)), "     "
+				d ..addTagElement(.writer,"c"_i,rs.Data(rs.GetColumnName(i)))
+			}
+		}
+		//w !
+		d writer.EndElement()	
+	}
+]]></Implementation>
+</Method>
+
+<Method name="addTagElement">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>writer:%XML.Writer,tagName:%String,tagValue:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	s tSC=$$$OK
+	d writer.Element(tagName)  
+	d writer.Write(tagValue)  
+	d writer.EndElement()
+	q tSC
+]]></Implementation>
+</Method>
+
+<Method name="XMLInXSL">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[XLS:%Stream.FileCharacter,&sc:%Status]]></FormalSpec>
+<ReturnType>%FileCharacterStream</ReturnType>
+<Implementation><![CDATA[
+	set sc = $$$OK
+	
+	Set tStream = ##class(%Dictionary.CompiledXData).%OpenId(..%ClassName(1)_"||XSLData").Data
+   	do ##class(%XML.TextReader).ParseStream(tStream,.reader)
+
+   	for i=1:1:6
+   	{
+	   do reader.Read()
+	   if i = 3 { s top = reader.Value }
+	   if i = 6 { s bot = reader.Value }
+   	}	
+   	
+	set XSL = ##class(%FileCharacterStream).%New()
+	set XSL.Filename = $EXTRACT(XLS.Filename,1,*-3)_"xsl"
+	
+	set pattern = "c\d{1,2}"
+	set replace = "<xsl:value-of select=""$0""/>"
+	set match = ##class(%Regex.Matcher).%New(pattern,XLS.Read())
+	
+	set sc = XSL.WriteLine(top)
+	set buffer = match.ReplaceAll(replace)
+	
+	set position(0)=$LENGTH(buffer)+2-$FIND($REVERSE(buffer),$REVERSE("<Workbook "))
+	set position(1)=$LENGTH(buffer)+2-$FIND($REVERSE(buffer),$REVERSE("ss:ExpandedColumnCount"))
+	set position(2)=$LENGTH(buffer)+2-$FIND($REVERSE(buffer),$REVERSE("x:FullColumns"))
+	
+	s sc = XSL.Write($EXTRACT(buffer,position(0),position(1)-1)) 
+	s sc = XSL.Write($EXTRACT(buffer,position(2),*))  
+	s sc = XSL.WriteLine(bot)
+	
+	//w XSL.%Save()
+	
+	return XSL
+]]></Implementation>
+</Method>
+
+<XData name="XSLData">
+<Data><![CDATA[
+<XSL>
+<TOP><![CDATA[
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:x="urn:schemas-microsoft-com:office:excel"
+xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<xsl:param name="CountParam"/>
+<xsl:template match="/">
+<xsl:processing-instruction name="mso-application">
+<xsl:text>progid="Excel.Sheet"</xsl:text>
+</xsl:processing-instruction>]]]]><![CDATA[>
+</TOP>
+
+<BOT>
+<![CDATA[
+</xsl:template>
+</xsl:stylesheet>
+]]]]><![CDATA[></BOT>
+</XSL>
+]]></Data>
+</XData>
+</Class>
+</Export>
