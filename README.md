@@ -6,7 +6,8 @@ ExcelReports from Caché
 ![Image of Yaktocat](http://savepic.ru/14518749.jpg)
 2. Если у вас после результата выполнения SQL запроса идут другие данные (футер), то в строках между ними необходимо поставить любой символ, например пробел или изменить форматирование (не должно быть полностью пустых строк). 
 3. Сохраните отчет в формате **Таблица XML 2003**.
-4. Импортируйте класс **Excel.XSL.xml** в нужную облость, например **Sample**.После, вызовите метод **XSLtoFile(Query,InputFileName,OutputFileName)**:
+4. Импортируйте класс **Excel.XSL.xml** в нужную облость, например **Samples**. 
+5. Вызовите метод **XSLtoFile(InputFileName, OutputFileName, Query, SQLArgs...)** класса Excel.XSL:
   ```
   set Query = "SELECT Name, Age, FavoriteColors, DOB,  SSN, Home_City, Home_State, Home_Street 
                FROM Sample.Person 
