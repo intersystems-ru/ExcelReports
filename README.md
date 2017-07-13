@@ -15,7 +15,7 @@ ExcelReports from Caché
                ORDER BY Age"
   set InputFileName = "C:\temp\input.xml"
   set OutputFileName = "C:\temp\output.xml"
-  set Status = ##class(Excel.XSL).XSLtoFile(InputFileName, OutputFileName, Query, 26, 49)
+  set Status = ##class(Excel.XSL).XSLtoFile(InputFileName, OutputFileName, Query, 20, 49)
   write $System.Status.GetErrorText(Status)
   ```
   6. Результат:
