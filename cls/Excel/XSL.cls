@@ -2,10 +2,10 @@ Class Excel.XSL
 {
 
 /// Входной файл
-Parameter XMLFILE = "C:\temp\input.xml";
+Parameter XMLFILE = "C:\temp\ExcelReports\input.xml";
 
 /// Выходной файл
-Parameter XLSFILE = "C:\temp\output.xls";
+Parameter XLSFILE = "C:\temp\ExcelReports\output.xls";
 
 /// Преобразование Excel таблицы в формате XML 2003 в XSL шаблон и наполнение его данными
 /// На вход: 
@@ -14,18 +14,22 @@ Parameter XLSFILE = "C:\temp\output.xls";
 /// Query - SQL запрос
 /// SQLArgs... - параметры SQL запроса
 /// w $System.Status.GetErrorText(##class(Excel.XSL).XSLtoFile(,,"SELECT Id FROM Sample.Person WHERE Id>?", 50))
-ClassMethod XSLtoFile(XMLFile As %String = {..#XMLFILE}, XLSFile As %String = {..#XLSFILE}, Query As %String = "", SQLArgs...) As %Status
+ClassMethod XSLtoFile(XMLFile As %String = {..#XMLFILE}, XLSFile As %String = {..#XLSFILE}, ByRef Query As %String) As %Status
 {
 	#dim Status As %Status = $$$OK
-	set XML = ##class(%FileCharacterStream).%New()
+	
+	set Status = ##class(%File).Exists(XMLFile)
+	quit:$$$ISERR(Status) $$$ERROR($$$GeneralError,"File "_XMLFile_" dose not exist!")	
+	
+	set XML = ##class(%FileBinaryStream).%New()
 	set XML.Filename = XMLFile
 	
 	set XSL = ..XMLToXSL(XML, .Status)
 	quit:$$$ISERR(Status) Status  
 	
-	set Status = ..GenXMLData(.XMLData, Query, SQLArgs...)
+	set Status = ..GenXMLData(.XMLData, .Query)
 	quit:$$$ISERR(Status) Status  
-	
+	w XMLData.OutputToDevice()
 	set OutputFile = ##class(%FileCharacterStream).%New()
 	set OutputFile.TranslateTable = "UTF8"
 	set OutputFile.Filename = XLSFile
@@ -36,7 +40,7 @@ ClassMethod XSLtoFile(XMLFile As %String = {..#XMLFILE}, XLSFile As %String = {.
 }
 
 /// Генерация XML с данными
-ClassMethod GenXMLData(Stream As %Stream.Object = {##class(%GlobalCharacterStream).%New()}, Query As %String, SQLArgs...) As %Status
+ClassMethod GenXMLData(Stream As %Stream.Object = {##class(%GlobalCharacterStream).%New()}, Query As %String) As %Status
 {
 	#dim Status As %Status = $$$OK
 	
@@ -44,18 +48,53 @@ ClassMethod GenXMLData(Stream As %Stream.Object = {##class(%GlobalCharacterStrea
 	set Writer.Indent = 1
 	set Status = Writer.OutputToStream(Stream)
 	quit:$$$ISERR(Status) Status
-	do Writer.RootElement("SQLResult")
-	set Status = ..AddSQLTags(.Writer, Query, SQLArgs...)	
+	
+	do Writer.RootElement("data")
+	set OrderQuery = $Order(Query(""))
+	while (OrderQuery '= "")
+	{
+		kill SQLArgs
+		do Writer.Element("query")
+		do Writer.WriteAttribute("id", OrderQuery)
+		do Writer.WriteAttribute("type","SQL")
+		merge SQLArgs = Query(OrderQuery)
+		set SQLArgs = ..GetArgsCount(.SQLArgs)
+		
+		if SQLArgs '= 0 {
+			set Status = ..AddSQLAttributes(.Writer, .SQLArgs,"q"_OrderQuery)
+		}
+		set Status = ..AddSQLTags(.Writer, Query(OrderQuery),"q"_OrderQuery, SQLArgs...)
+		
+		do Writer.EndElement()
+		set OrderQuery = $Order(Query(OrderQuery))
+	}	
  	do Writer.EndRootElement()
+ 	
 	quit Status
 }
 
-ClassMethod AddSQLTags(Writer As %XML.Writer, Query As %String, SQLArgs...) As %Status
+ClassMethod AddSQLAttributes(Writer As %XML.Writer, SQLArgs, NumQuery As %String) As %Status
 {
+	set SC = $$$OK
+	set SC = Writer.Element("args")
+	set Iter = $Order(SQLArgs(""))
+	while (Iter '= "")
+	{
+		set SC = Writer.Element(NumQuery_"a"_Iter)
+		set SC = Writer.Write(SQLArgs(Iter))
+		set SC = Writer.EndElement()
+		set Iter = $Order(SQLArgs(Iter))
+	}
+	set SC = Writer.EndElement()
+	return $$$ISERR(SC)
+}
+
+ClassMethod AddSQLTags(Writer As %XML.Writer, Query As %String, NumQuery As %String, SQLArgs...) As %Status
+{
+	w !,Query
 	#dim Status As %Status = $$$OK
-	
 	#dim RS As %SQL.StatementResult = ##class(%SQL.Statement).%ExecDirect(,Query, SQLArgs...)
-	quit:RS.%SQLCODE'=0 $$$ERROR($$$SQLError, RS.%SQLCODE, RS.%Message)
+	return:RS.%SQLCODE'=0 $$$ERROR($$$SQLError, RS.%SQLCODE, RS.%Message)
 
 	set ColCount = RS.%ResultColumnCount
 	
@@ -68,11 +107,12 @@ ClassMethod AddSQLTags(Writer As %XML.Writer, Query As %String, SQLArgs...) As %
 	{ 
 		quit:$$$ISERR(Status)
 		do Writer.Element("row")
-		for i = 1:1:ColCount {
+		for i = 1:1:ColCount 
+		{
 			if (ColTypes(i) = 2) {
-				do ..AddTagElement(.Writer, "c"_i, $zd(RS.%GetData(i), 3))
+				do ..AddTagElement(.Writer, NumQuery_"c"_i, $zd(RS.%GetData(i), 3))
 			} else {
-				do ..AddTagElement(.Writer, "c"_i, RS.%GetData(i))
+				do ..AddTagElement(.Writer, NumQuery_"c"_i, RS.%GetData(i))
 			}
 		}
 		do Writer.EndElement()	
@@ -90,7 +130,7 @@ ClassMethod AddTagElement(Writer As %XML.Writer, TagName As %String, TagValue As
 }
 
 /// Преобразование исходного XML файла в XSL шаблон, на вход которому подаются данные.
-ClassMethod XMLToXSL(XML As %Stream.FileCharacter, ByRef Status As %Status) As %GlobalBinaryStream
+ClassMethod XMLToXSL(XML As %FileBinaryStream, ByRef Status As %Status) As %GlobalBinaryStream
 {
 	set Status = $$$OK
 	set XSL = ##class(%Dictionary.CompiledXData).IDKEYOpen($classname(), "XSLData").Data
@@ -98,18 +138,16 @@ ClassMethod XMLToXSL(XML As %Stream.FileCharacter, ByRef Status As %Status) As %
 	return ResultXSL
 }
 
-ClassMethod Test() As %Status
+ClassMethod GetArgsCount(Args) As %Integer
 {
-	#dim Status As %Status = $$$OK
-	set XML = ##class(%FileCharacterStream).%New()
-	set XML.Filename = ..#XMLFILE
-	
-	write $zt($p($h,",",2)), " Конвертирование XML в XSL: ...", !
-	set XSL = ..XMLToXSL(XML,.Status) 
-	quit:$$$ISERR(Status) Status
-	write $zt($p($h,",",2)), " Конвертирование XML в XSL: OK!", !
-	write XSL.%Save()
-   	quit Status
+	set iter = $order(Args(""))
+	set count = 0
+	while (iter '= "")
+	{	
+		set count = count + 1
+		set iter = $order(Args(iter))
+	}
+ 	return count
 }
 
 XData XSLData
@@ -119,72 +157,96 @@ XData XSLData
 	xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
 	xmlns:out="http://xmlportfolio.com/dummy"
 	version="1.0">
-<xsl:namespace-alias stylesheet-prefix="out" result-prefix="xsl"/>
-<xsl:output method="xml" omit-xml-declaration="no" indent="yes" />
-<xsl:variable name="vDigits" select="'0123456789'"/>
-<xsl:template match="/">
-<out:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+	<xsl:namespace-alias stylesheet-prefix="out" result-prefix="xsl"/>
+	<xsl:output method="xml" omit-xml-declaration="no" indent="yes" />
+	<xsl:variable name="vDigits" select="'0123456789'"/>
+	
+	<xsl:template match="/">
+		<out:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 xmlns="urn:schemas-microsoft-com:office:spreadsheet"
 xmlns:o="urn:schemas-microsoft-com:office:office"
 xmlns:x="urn:schemas-microsoft-com:office:excel"
 xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-<out:output method="xml" omit-xml-declaration="no" indent="yes" />		
-<out:template match="/">
-<out:processing-instruction name="mso-application">
-<out:text>progid="Excel.Sheet"</out:text>
-</out:processing-instruction>
-<xsl:copy>
-<xsl:apply-templates select="@*"/>
-<xsl:apply-templates select="node()"/>
-</xsl:copy>
-</out:template>
-</out:stylesheet>
-</xsl:template>
-<xsl:template match="//@* | //node()">
-<xsl:copy>
-<xsl:apply-templates select="@*"/>
-<xsl:apply-templates select="node()"/>
-</xsl:copy>
-</xsl:template>
-<xsl:template match="//*[local-name() = 'Table']/@ss:ExpandedColumnCount"/>
-<xsl:template match="//*[local-name() = 'Table']/@ss:ExpandedRowCount"/>
-<xsl:template match="//*[local-name() = 'Row']/@ss:Index"/>
-<xsl:template match="//*[local-name() = 'Row']">
-<xsl:choose>
-<xsl:when test="(.//*[local-name() = 'Data' and (starts-with(.,'c') = 'true') and (translate(substring-after(.,'c'),$vDigits,'') = '')])">
-<out:for-each select="//row">
-<xsl:copy>
-<xsl:apply-templates select="node()|@*"/>
-</xsl:copy>
-</out:for-each>
-</xsl:when>
-<xsl:otherwise>
-<xsl:copy>
-<xsl:apply-templates select="node()|@*"/>
-</xsl:copy>
-</xsl:otherwise>
-</xsl:choose>
-</xsl:template>
-<xsl:template match="//*[local-name() = 'Data' and count(*) = 0]">
-<xsl:element name="{local-name()}" namespace="{namespace-uri()}">
-<xsl:copy-of select="./namespace::*"/>
-<xsl:apply-templates select="@*"/>
-<xsl:choose>
-<xsl:when test="(starts-with(.,'c') = 'true') and (translate(substring-after(.,'c'),$vDigits,'') = '')">
-<xsl:element name="xsl:value-of">
-<xsl:attribute name="select">
-<xsl:value-of select="."/>
-</xsl:attribute>
-</xsl:element>
-</xsl:when>
-<xsl:otherwise>
-<xsl:value-of select="."/>
-</xsl:otherwise>
-</xsl:choose>
-</xsl:element>
-</xsl:template>
+			<out:output method="xml" omit-xml-declaration="no" indent="yes" />		
+			<out:template match="/">
+				<out:processing-instruction name="mso-application">
+					<out:text>progid="Excel.Sheet"</out:text>
+				</out:processing-instruction>
+				<xsl:copy>
+					<xsl:apply-templates select="@*"/>
+					<xsl:apply-templates select="node()"/>
+				</xsl:copy>
+			</out:template>
+		</out:stylesheet>
+	</xsl:template>
+	
+	<xsl:template match="//@* | //node()">
+		<xsl:copy>
+			<xsl:apply-templates select="@*"/>
+			<xsl:apply-templates select="node()"/>
+		</xsl:copy>
+	</xsl:template>
+	
+	<xsl:template match="//*[local-name() = 'Table']/@ss:ExpandedColumnCount"/>
+	<xsl:template match="//*[local-name() = 'Table']/@ss:ExpandedRowCount"/>
+	<xsl:template match="//*[local-name() = 'Row']/@ss:Index"/>
+
+	<xsl:template match="//*[local-name() = 'Row']">
+		<xsl:choose>
+			<xsl:when test="(.//*[local-name() = 'Data' and ((starts-with(substring-before(.,'c'),'q') = 'true') 
+														and (translate(substring-after(substring-before(.,'c'),'q'),$vDigits,'') = '')) 
+														and ((starts-with(substring-after(.,substring-before(.,'c')),'c') = 'true') 
+														and (translate(substring-after(substring-after(.,substring-before(.,'c')),'c'),$vDigits,'') = '')) ])"> 
+					<xsl:element name="xsl:for-each">
+						<xsl:attribute name="select">
+							<xsl:text>//query[@id = '</xsl:text><xsl:value-of select="substring-after(substring-before(.,'c'),'q')"/><xsl:text>']/row</xsl:text>
+						</xsl:attribute>
+						<xsl:copy>
+							<xsl:apply-templates select="node()|@*"/>
+						</xsl:copy>
+					</xsl:element>
+			</xsl:when>
+			<xsl:otherwise>
+				<xsl:copy>
+					<xsl:apply-templates select="node()|@*"/>
+				</xsl:copy>
+			</xsl:otherwise>
+		</xsl:choose>
+	</xsl:template>
+	
+	<xsl:template match="//*[local-name() = 'Data' and count(*) = 0]">
+		<xsl:element name="{local-name()}" namespace="{namespace-uri()}">
+			<xsl:copy-of select="./namespace::*"/>
+			<xsl:apply-templates select="@*"/>
+			<xsl:choose>
+				<xsl:when test="((starts-with(substring-before(.,'c'),'q') = 'true') 
+														and (translate(substring-after(substring-before(.,'c'),'q'),$vDigits,'') = '')) 
+														and ((starts-with(substring-after(.,substring-before(.,'c')),'c') = 'true') 
+														and (translate(substring-after(substring-after(.,substring-before(.,'c')),'c'),$vDigits,'') = ''))">
+					<xsl:element name="xsl:value-of">
+						<xsl:attribute name="select">
+							<xsl:value-of select="."/>
+						</xsl:attribute>
+					</xsl:element>
+				</xsl:when>
+				<xsl:when test="((starts-with(substring-before(.,'a'),'q') = 'true') 
+														and (translate(substring-after(substring-before(.,'a'),'q'),$vDigits,'') = '')) 
+														and ((starts-with(substring-after(.,substring-before(.,'a')),'a') = 'true') 
+														and (translate(substring-after(substring-after(.,substring-before(.,'a')),'a'),$vDigits,'') = ''))">
+					<xsl:element name="xsl:value-of">
+						<xsl:attribute name="select">
+							<xsl:text>//query[@id = '</xsl:text><xsl:value-of select="substring-after(substring-before(.,'a'),'q')"/><xsl:text>']/args/</xsl:text><xsl:value-of select="."/>
+						</xsl:attribute>
+					</xsl:element>
+				</xsl:when>
+				<xsl:otherwise>
+					<xsl:value-of select="."/>
+				</xsl:otherwise>
+			</xsl:choose>
+		</xsl:element>
+	</xsl:template>
+	
 </xsl:stylesheet>
 }
 
 }
-
