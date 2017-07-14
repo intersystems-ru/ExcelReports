@@ -1,0 +1,28 @@
+/// Sample
+Class Excel.Test [ Abstract ]
+{
+
+/// $System.Status.GetErrorText(##class(Excel.Test).Test())
+ClassMethod Test()
+{
+	// Fill global with test data
+	kill ^ExcelTest
+	set ^ExcelTest    = $ListBuild("Argument1", "Argument2")
+	set ^ExcelTest(1) = $ListBuild("Value11", "Value12")
+	set ^ExcelTest(2) = $ListBuild("Value21", "Value22")
+	set ^ExcelTest(3) = $ListBuild("Value31", "Value32")
+	
+	// Specify datasources
+	set Queries(1) = "SELECT Id FROM Sample.Person WHERE Id>? AND Id<?"
+	set Queries(1,1) = 1
+	set Queries(1,2) = 10
+	set Queries(2) = "^ExcelTest"
+	
+	// Specify input and output files
+	set XMLFile = "D:\Cache\ExcelReports\Test\Source.xml"
+	set XLSFile = "D:\Cache\ExcelReports\Test\Out.xls"
+	
+	quit ##class(Excel.XSL).XSLtoFile(XMLFile, XLSFile, .Queries)
+}
+
+}
