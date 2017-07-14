@@ -10,16 +10,17 @@ Parameter XLSFILE = "C:\temp\output.xls";
 /// Преобразование Excel таблицы в формате XML 2003 в XSL шаблон и наполнение его данными
 /// На вход: 
 /// XMLFile - Полный путь до исходного файла шаблона Excel таблицы в формате XML 2003 
-/// XMLFile - Полный путь до выходного файла Excel таблицы с расширением xls
-/// Query - SQL запрос
-/// SQLArgs... - параметры SQL запроса
-/// w $System.Status.GetErrorText(##class(Excel.XSL).XSLtoFile(,,"SELECT Id FROM Sample.Person WHERE Id>?", 50))
-ClassMethod XSLtoFile(XMLFile As %String = {..#XMLFILE}, XLSFile As %String = {..#XLSFILE}, ByRef Query As %String) As %Status
+/// XLSFile - Полный путь до выходного файла Excel таблицы с расширением xls
+/// Queries - SQL запросы и глобалы в формате:
+/// Queries(n) = <SQL Запрос> или <Глобал> номер n
+/// Queries(n, m) = параметр SQL запроса номер m
+/// w $System.Status.GetErrorText(##class(Excel.XSL).XSLtoFile(,,.Queries))
+ClassMethod XSLtoFile(XMLFile As %String = {..#XMLFILE}, XLSFile As %String = {..#XLSFILE}, ByRef Queries As %String) As %Status
 {
 	#dim Status As %Status = $$$OK
 	
 	set Status = ##class(%File).Exists(XMLFile)
-	quit:$$$ISERR(Status) $$$ERROR($$$GeneralError,"File "_XMLFile_" dose not exist!")	
+	quit:$$$ISERR(Status) $$$ERROR($$$FileDoesNotExist, XMLFile)	
 	
 	set XML = ##class(%FileBinaryStream).%New()
 	set XML.Filename = XMLFile
@@ -27,9 +28,9 @@ ClassMethod XSLtoFile(XMLFile As %String = {..#XMLFILE}, XLSFile As %String = {.
 	set XSL = ..XMLToXSL(XML, .Status)
 	quit:$$$ISERR(Status) Status  
 	
-	set Status = ..ChackQury(.XMLData, .Query)
+	set Status = ..GenXMLData(.XMLData, .Queries)
 	quit:$$$ISERR(Status) Status  
-	w XMLData.OutputToDevice()
+
 	set OutputFile = ##class(%FileCharacterStream).%New()
 	set OutputFile.TranslateTable = "UTF8"
 	set OutputFile.Filename = XLSFile
@@ -39,7 +40,7 @@ ClassMethod XSLtoFile(XMLFile As %String = {..#XMLFILE}, XLSFile As %String = {.
 	quit OutputFile.%Save()
 }
 
-ClassMethod ChackQury(Stream As %Stream.Object = {##class(%GlobalCharacterStream).%New()}, Query As %String) As %Status
+ClassMethod GenXMLData(Stream As %Stream.Object = {##class(%GlobalCharacterStream).%New()}, Queries As %String) As %Status
 {
 	#dim Status As %Status = $$$OK
 	
@@ -50,24 +51,23 @@ ClassMethod ChackQury(Stream As %Stream.Object = {##class(%GlobalCharacterStream
 	
 	do Writer.RootElement("data")
 	
-	set Iter = $Order(Query(""))
-	while (Iter'="")
+	set Iter = $Order(Queries(""))
+	while (Iter '= "")
 	{
-		if $l($zcvt(Query(Iter),"U"),"SELECT") > 1
+		if $Length($ZConvert(Queries(Iter), "U"), "SELECT") > 1
 		{
-			merge QueryNode =  Query(Iter)
+			merge QueryNode =  Queries(Iter)
 			do ..GenXMLDataBySQL(.Writer, .QueryNode, Iter)
 			kill QueryNode
 			
-		}elseif $ListValid(@Query(Iter)){
-			merge GlobalNode =  @Query(Iter)
+		}elseif $ListValid(@Queries(Iter)){
+			merge GlobalNode =  @Queries(Iter)
 			do ..GenXMLDataByGlobal(.Writer, .GlobalNode, Iter)
 			kill GlobalNode
-			
 		}else{
-			return $$$ERROR($$$GeneralError,"Unexpected query: "_Query(Iter))
+			return $$$ERROR($$$GeneralError, "Unexpected query: " _ Queries(Iter))
 		}
-		set Iter = $Order(Query(Iter))
+		set Iter = $Order(Queries(Iter))
 	}
 	do Writer.EndRootElement()
  	
@@ -80,12 +80,12 @@ ClassMethod GenXMLDataByGlobal(Writer As %XML.Writer, GlobalNode As %String, Num
 	
 	do Writer.Element("query")
 	do Writer.WriteAttribute("id", NumGlobalNode)
-	do Writer.WriteAttribute("type","Global")
+	do Writer.WriteAttribute("type", "Global")
 	
 	if $ListValid(GlobalNode){
-		set Status = ..AddGlobalArgument(.Writer, GlobalNode, "q"_NumGlobalNode)
+		set Status = ..AddGlobalArgument(.Writer, GlobalNode, "q" _ NumGlobalNode)
 	}
-	set Status = ..AddGlobalTags(.Writer, .GlobalNode, "q"_NumGlobalNode)
+	set Status = ..AddGlobalTags(.Writer, .GlobalNode, "q" _ NumGlobalNode)
 	
 	do Writer.EndElement()
 	
@@ -97,9 +97,9 @@ ClassMethod AddGlobalArgument(Writer As %XML.Writer, GlobalArgss As %String, Num
 	#dim Status As %Status = $$$OK
 	
 	do Writer.Element("args")
-	for i=1:1:$LISTLENGTH(GlobalArgss)
+	for i=1:1:$ListLength(GlobalArgss)
 	{
-		set Status = ..AddTagElement(.Writer, NumGlobalNode_"a"_i, $List(GlobalArgss,i))
+		set Status = ..AddTagElement(.Writer, NumGlobalNode _ "a" _ i, $ListGet(GlobalArgss, i))
 	}
 	do Writer.EndElement()
 	
@@ -114,9 +114,9 @@ ClassMethod AddGlobalTags(Writer As %XML.Writer, GlobalNodes As %String, NumGlob
 	while (Node '= "")
 	{
 		do Writer.Element("row")
-		for NodeList = 1:1:$LISTLENGTH(GlobalNodes(Node))
+		for NodeList = 1:1:$ListLength(GlobalNodes(Node))
 		{
-			set Status = ..AddTagElement(.Writer, NumGlobalNode_"c"_NodeList, $LIST(GlobalNodes(Node),NodeList))
+			set Status = ..AddTagElement(.Writer, NumGlobalNode _ "c" _ NodeList, $ListGet(GlobalNodes(Node), NodeList))
 		}
 		set Node = $Order(GlobalNodes(Node))
 		do Writer.EndElement()
@@ -139,7 +139,7 @@ ClassMethod GenXMLDataBySQL(Writer As %XML.Writer, Query As %String, NumQuery As
 	if ArgsCount > 0 {
 		merge SQLArgs = Query
 		set SQLArgs = ArgsCount
-		set Status = ..AddSQLAttributes(.Writer, .SQLArgs, "q"_NumQuery)
+		set Status = ..AddSQLAttributes(.Writer, .SQLArgs, "q" _ NumQuery)
 	}
 	set Status = ..AddSQLTags(.Writer, Query,"q"_NumQuery, SQLArgs...)
 	
@@ -167,7 +167,6 @@ ClassMethod AddSQLAttributes(Writer As %XML.Writer, SQLArgs, NumQuery As %String
 
 ClassMethod AddSQLTags(Writer As %XML.Writer, Query As %String, NumQuery As %String, SQLArgs...) As %Status
 {
-	w !,Query
 	#dim Status As %Status = $$$OK
 	#dim RS As %SQL.StatementResult = ##class(%SQL.Statement).%ExecDirect(,Query, SQLArgs...)
 	return:RS.%SQLCODE'=0 $$$ERROR($$$SQLError, RS.%SQLCODE, RS.%Message)
@@ -186,9 +185,9 @@ ClassMethod AddSQLTags(Writer As %XML.Writer, Query As %String, NumQuery As %Str
 		for i = 1:1:ColCount 
 		{
 			if (ColTypes(i) = 2) {
-				do ..AddTagElement(.Writer, NumQuery_"c"_i, $zd(RS.%GetData(i), 3))
+				do ..AddTagElement(.Writer, NumQuery _ "c" _ i, $ZDate(RS.%GetData(i), 3))
 			} else {
-				do ..AddTagElement(.Writer, NumQuery_"c"_i, RS.%GetData(i))
+				do ..AddTagElement(.Writer, NumQuery _ "c" _ i, RS.%GetData(i))
 			}
 		}
 		do Writer.EndElement()	
@@ -209,21 +208,21 @@ ClassMethod AddTagElement(Writer As %XML.Writer, TagName As %String, TagValue As
 ClassMethod XMLToXSL(XML As %FileBinaryStream, ByRef Status As %Status) As %GlobalBinaryStream
 {
 	set Status = $$$OK
-	set XSL = ##class(%Dictionary.CompiledXData).IDKEYOpen($classname(), "XSLData").Data
+	set XSL = ##class(%Dictionary.CompiledXData).IDKEYOpen($ClassName(), "XSLData").Data
 	set Status = ##class(%XML.XSLT.Transformer).TransformStream(XML, XSL, .ResultXSL)
 	return ResultXSL
 }
 
-ClassMethod GetSQLArgsCount(Args) As %Integer
+ClassMethod GetSQLArgsCount(ByRef Args) As %Integer
 {
-	set iter = $order(Args(""))
-	set count = 0
-	while (iter '= "")
+	set Iter = $Order(Args(""))
+	set Count = 0
+	while (Iter '= "")
 	{	
-		set count = count + 1
-		set iter = $order(Args(iter))
+		set Count = Count + 1
+		set Iter = $Order(Args(Iter))
 	}
- 	return count
+ 	return Count
 }
 
 XData XSLData
