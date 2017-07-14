@@ -18,10 +18,10 @@ ClassMethod Test()
 	set ^ExcelTest(1,2) = $ListBuild("Value21", "Value22")
 	set ^ExcelTest(1,3) = $ListBuild("Value31", "Value32")
 	
-        set ^ExcelTest(2)    = $ListBuild("Argument1", "Argument2")
-        set ^ExcelTest(2,1) = $ListBuild("Value11", "Value12")
-        set ^ExcelTest(2,2) = $ListBuild("Value21", "Value22")
-	set ^ExcelTest(2,3) = $ListBuild("Value31", "Value32")
+	set ^ExcelTest(2)    = $ListBuild("Argument1", "Argument2")
+	set ^ExcelTest(2,1) = $ListBuild("Value11", "Value12")
+	set ^ExcelTest(2,2) = $ListBuild("Value21", "Value22")
+ 	set ^ExcelTest(2,3) = $ListBuild("Value31", "Value32")
 	
 	// Specify datasources
 	set Queries(1) = "SELECT Id FROM Sample.Person WHERE Id>? AND Id<?"
