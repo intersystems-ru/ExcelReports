@@ -2,10 +2,10 @@ Class Excel.XSL
 {
 
 /// Входной файл
-Parameter XMLFILE = "C:\temp\ExcelReports\input.xml";
+Parameter XMLFILE = "C:\temp\input.xml";
 
 /// Выходной файл
-Parameter XLSFILE = "C:\temp\ExcelReports\output.xls";
+Parameter XLSFILE = "C:\temp\output.xls";
 
 /// Преобразование Excel таблицы в формате XML 2003 в XSL шаблон и наполнение его данными
 /// На вход: 
@@ -27,7 +27,7 @@ ClassMethod XSLtoFile(XMLFile As %String = {..#XMLFILE}, XLSFile As %String = {.
 	set XSL = ..XMLToXSL(XML, .Status)
 	quit:$$$ISERR(Status) Status  
 	
-	set Status = ..GenXMLData(.XMLData, .Query)
+	set Status = ..ChackQury(.XMLData, .Query)
 	quit:$$$ISERR(Status) Status  
 	w XMLData.OutputToDevice()
 	set OutputFile = ##class(%FileCharacterStream).%New()
@@ -39,8 +39,7 @@ ClassMethod XSLtoFile(XMLFile As %String = {..#XMLFILE}, XLSFile As %String = {.
 	quit OutputFile.%Save()
 }
 
-/// Генерация XML с данными
-ClassMethod GenXMLData(Stream As %Stream.Object = {##class(%GlobalCharacterStream).%New()}, Query As %String) As %Status
+ClassMethod ChackQury(Stream As %Stream.Object = {##class(%GlobalCharacterStream).%New()}, Query As %String) As %Status
 {
 	#dim Status As %Status = $$$OK
 	
@@ -50,26 +49,103 @@ ClassMethod GenXMLData(Stream As %Stream.Object = {##class(%GlobalCharacterStrea
 	quit:$$$ISERR(Status) Status
 	
 	do Writer.RootElement("data")
-	set OrderQuery = $Order(Query(""))
-	while (OrderQuery '= "")
+	
+	set Iter = $Order(Query(""))
+	while (Iter'="")
 	{
-		kill SQLArgs
-		do Writer.Element("query")
-		do Writer.WriteAttribute("id", OrderQuery)
-		do Writer.WriteAttribute("type","SQL")
-		merge SQLArgs = Query(OrderQuery)
-		set SQLArgs = ..GetArgsCount(.SQLArgs)
-		
-		if SQLArgs '= 0 {
-			set Status = ..AddSQLAttributes(.Writer, .SQLArgs,"q"_OrderQuery)
+		if $l($zcvt(Query(Iter),"U"),"SELECT") > 1
+		{
+			merge QueryNode =  Query(Iter)
+			do ..GenXMLDataBySQL(.Writer, .QueryNode, Iter)
+			kill QueryNode
+			
+		}elseif $ListValid(@Query(Iter)){
+			merge GlobalNode =  @Query(Iter)
+			do ..GenXMLDataByGlobal(.Writer, .GlobalNode, Iter)
+			kill GlobalNode
+			
+		}else{
+			return $$$ERROR($$$GeneralError,"Unexpected query: "_Query(Iter))
 		}
-		set Status = ..AddSQLTags(.Writer, Query(OrderQuery),"q"_OrderQuery, SQLArgs...)
-		
-		do Writer.EndElement()
-		set OrderQuery = $Order(Query(OrderQuery))
-	}	
- 	do Writer.EndRootElement()
+		set Iter = $Order(Query(Iter))
+	}
+	do Writer.EndRootElement()
  	
+	quit Status
+}
+
+ClassMethod GenXMLDataByGlobal(Writer As %XML.Writer, GlobalNode As %String, NumGlobalNode As %String) As %Status
+{
+	#dim Status As %Status = $$$OK
+	
+	do Writer.Element("query")
+	do Writer.WriteAttribute("id", NumGlobalNode)
+	do Writer.WriteAttribute("type","Global")
+	
+	if $ListValid(GlobalNode){
+		set Status = ..AddGlobalArgument(.Writer, GlobalNode, "q"_NumGlobalNode)
+	}
+	set Status = ..AddGlobalTags(.Writer, .GlobalNode, "q"_NumGlobalNode)
+	
+	do Writer.EndElement()
+	
+	quit Status
+}
+
+ClassMethod AddGlobalArgument(Writer As %XML.Writer, GlobalArgss As %String, NumGlobalNode As %String) As %Status
+{
+	#dim Status As %Status = $$$OK
+	
+	do Writer.Element("args")
+	for i=1:1:$LISTLENGTH(GlobalArgss)
+	{
+		set Status = ..AddTagElement(.Writer, NumGlobalNode_"a"_i, $List(GlobalArgss,i))
+	}
+	do Writer.EndElement()
+	
+	return Status
+}
+
+ClassMethod AddGlobalTags(Writer As %XML.Writer, GlobalNodes As %String, NumGlobalNode As %String) As %Status
+{
+	#dim Status As %Status = $$$OK
+	
+	set Node = $Order(GlobalNodes(""))
+	while (Node '= "")
+	{
+		do Writer.Element("row")
+		for NodeList = 1:1:$LISTLENGTH(GlobalNodes(Node))
+		{
+			set Status = ..AddTagElement(.Writer, NumGlobalNode_"c"_NodeList, $LIST(GlobalNodes(Node),NodeList))
+		}
+		set Node = $Order(GlobalNodes(Node))
+		do Writer.EndElement()
+	}
+	
+	return Status
+}
+
+/// Генерация XML с данными по SQL запрсам
+ClassMethod GenXMLDataBySQL(Writer As %XML.Writer, Query As %String, NumQuery As %String) As %Status
+{
+	#dim Status As %Status = $$$OK
+	
+	do Writer.Element("query")
+	do Writer.WriteAttribute("id", NumQuery)
+	do Writer.WriteAttribute("type","SQL")
+	
+	set ArgsCount = ..GetSQLArgsCount(.Query)
+	
+	if ArgsCount > 0 {
+		merge SQLArgs = Query
+		set SQLArgs = ArgsCount
+		set Status = ..AddSQLAttributes(.Writer, .SQLArgs, "q"_NumQuery)
+	}
+	set Status = ..AddSQLTags(.Writer, Query,"q"_NumQuery, SQLArgs...)
+	
+	do Writer.EndElement()
+	
+	kill SQLArgs
 	quit Status
 }
 
@@ -138,7 +214,7 @@ ClassMethod XMLToXSL(XML As %FileBinaryStream, ByRef Status As %Status) As %Glob
 	return ResultXSL
 }
 
-ClassMethod GetArgsCount(Args) As %Integer
+ClassMethod GetSQLArgsCount(Args) As %Integer
 {
 	set iter = $order(Args(""))
 	set count = 0
