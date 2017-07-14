@@ -33,4 +33,5 @@ ClassMethod Test()
   ```
   
   6. Результат:
+  
   ![Image of Yaktocat](http://savepic.ru/14824175.jpg)
