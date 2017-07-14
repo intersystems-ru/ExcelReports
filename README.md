@@ -2,21 +2,35 @@
 ExcelReports from Caché
 ## Инструкция
 
-1. Заполните поля в таблице excel английской буквой **c** и цифрой от 1 до n. Это колонки в sql запросе.
+1. В таблице excel, заполните поля, значения которых вы хотите заменить на данные английскими буквами **qNcM** где N -номер набора данных, а M - номер колонки в наборе данных. Либо **qNaM** - где N -номер набора данных, а M - номер аргумента в наборе данных.
 ![Image of Yaktocat](http://savepic.ru/14518749.jpg)
-2. Если у вас после результата выполнения SQL запроса идут другие данные (футер), то в строках между ними необходимо поставить любой символ, например пробел или изменить форматирование (не должно быть полностью пустых строк). 
-3. Сохраните отчет в формате **Таблица XML 2003**.
+2. В пустых строках между необходимо поставить любой символ, например пробел или изменить форматирование (не должно быть полностью пустых строк). 
+3. Сохраните отчет в формате **Таблица XML 2003** (не XML-Данные).
 4. Импортируйте класс **Excel.XSL.xml** в нужную облость, например **Samples**. 
-5. Вызовите метод **XSLtoFile(InputFileName, OutputFileName, Query, SQLArgs...)** класса Excel.XSL:
+5. Вызовите метод **XSLtoFile(InputFileName, OutputFileName, Queries** класса Excel.XSL, пример вызова доступен в Excel.Test:
   ```
-  set Query = "SELECT Name, Age, FavoriteColors, DOB,  SSN, Home_City, Home_State, Home_Street 
-               FROM Sample.Person 
-               WHERE Age > ? AND Age < ? 
-               ORDER BY Age"
-  set InputFileName = "C:\temp\input.xml"
-  set OutputFileName = "C:\temp\output.xml"
-  set Status = ##class(Excel.XSL).XSLtoFile(InputFileName, OutputFileName, Query, 20, 49)
-  write $System.Status.GetErrorText(Status)
+ClassMethod Test()
+{
+	// Fill global with test data
+	kill ^ExcelTest
+	set ^ExcelTest    = $ListBuild("Argument1", "Argument2")
+	set ^ExcelTest(1) = $ListBuild("Value11", "Value12")
+	set ^ExcelTest(2) = $ListBuild("Value21", "Value22")
+	set ^ExcelTest(3) = $ListBuild("Value31", "Value32")
+	
+	// Specify datasources
+	set Queries(1) = "SELECT Id FROM Sample.Person WHERE Id>? AND Id<?"
+	set Queries(1,1) = 1
+	set Queries(1,2) = 10
+	set Queries(2) = "^ExcelTest"
+	
+	// Specify input and output files
+	set XMLFile = "D:\Cache\ExcelReports\Test\Source.xml"
+	set XLSFile = "D:\Cache\ExcelReports\Test\Out.xls"
+	
+	quit ##class(Excel.XSL).XSLtoFile(XMLFile, XLSFile, .Queries)
+}
   ```
+  
   6. Результат:
   ![Image of Yaktocat](http://savepic.ru/14494195.jpg)
